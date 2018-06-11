@@ -1,74 +1,71 @@
-package stream
+package expiry
 
 import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/kinesis"
 )
 
-type StreamData struct {
-	Keys []string
-	Time time.Time
+// KinesisStream contains all of the functionality used to access Kinesis.
+type KinesisStream interface {
+	PutRecords(input *kinesis.PutRecordsInput) (*kinesis.PutRecordsOutput, error)
+	GetShardIterator(input *kinesis.GetShardIteratorInput) (*kinesis.GetShardIteratorOutput, error)
+	GetRecords(input *kinesis.GetRecordsInput) (*kinesis.GetRecordsOutput, error)
+	ListShards(input *kinesis.ListShardsInput) (*kinesis.ListShardsOutput, error)
 }
 
-func NewStreamData(keys []string) StreamData {
-	return StreamData{
-		Keys: keys,
-		Time: time.Now().UTC(),
+// Stream provides a way to send and receive events using Kinesis.
+type Stream struct {
+	svc  KinesisStream
+	Name string
+}
+
+// NewStream creates a new pusher to stream events to Kinesis.
+func NewStream(name string) Stream {
+	return Stream{
+		Name: name,
+		svc:  kinesis.New(session.New()),
 	}
 }
 
-// Pusher provides a way to push events to Kinesis.
-type Pusher struct {
-	StreamName string
-}
-
-// NewPusher creates a new pusher to stream events to Kinesis.
-func NewPusher(streamName string) Pusher {
-	return Pusher{
-		StreamName: streamName,
-	}
-}
-
-// Push pushes events to the stream.
-func (p Pusher) Push(keys []string) (err error) {
-	svc := kinesis.New(session.New())
-	records, err := getRecords(keys)
+// Put pushes events onto the stream.
+func (p Stream) Put(keys []string) (err error) {
+	records, err := createPutRecords(keys)
 	if err != nil {
 		return
 	}
 	input := &kinesis.PutRecordsInput{
-		StreamName: aws.String(p.StreamName),
+		StreamName: aws.String(p.Name),
 		Records:    records,
 	}
-	_, err = svc.PutRecords(input)
+	_, err = p.svc.PutRecords(input)
 	return
 }
 
-func getRecords(keys []string) ([]*kinesis.PutRecordsRequestEntry, error) {
-	records := make([]*kinesis.PutRecordsRequestEntry, len(keys))
+func createPutRecords(keys []string) ([]*kinesis.PutRecordsRequestEntry, error) {
 	// Chunk into 512KB messages, Kinesis's maximum is 1MB.
-	for i, sliceOfKeys := range chunk(keys, 512*1024) {
-		sc := NewStreamData(sliceOfKeys)
-		data, err := json.Marshal(sc)
+	chunks := chunk(keys, 512*1024)
+	records := make([]*kinesis.PutRecordsRequestEntry, len(chunks))
+	for i, sliceOfKeys := range chunks {
+		sd := NewStreamData(sliceOfKeys)
+		data, err := json.Marshal(sd)
 		if err != nil {
 			return records, err
 		}
 		records[i] = &kinesis.PutRecordsRequestEntry{
-			PartitionKey: aws.String(randomKey()),
+			PartitionKey: aws.String(createRandomKey()),
 			Data:         data,
 		}
 	}
 	return records, nil
 }
 
-func randomKey() string {
+func createRandomKey() string {
 	var vs, op []byte
 	rand.Read(vs)
 	hex.Encode(op, vs)
@@ -92,20 +89,25 @@ func chunk(values []string, maxLength int) (op [][]string) {
 	return
 }
 
+// ShardID is the unique ID of a shard.
 type ShardID string
+
+// SequenceNumber is the position within the Kinesis stream.
 type SequenceNumber string
+
+// StreamPosition stores the reader's position within each shard.
 type StreamPosition map[ShardID]SequenceNumber
 
-func (p Pusher) Get(from StreamPosition, since time.Time) (keys []string, to StreamPosition, err error) {
-	shards, err := p.ListAllShards()
+// Get returns all of the keys added to the stream since the StreamPosition was encountered.
+func (p Stream) Get(from StreamPosition) (keys []string, to StreamPosition, err error) {
+	shards, err := p.listShards()
 	if err != nil {
 		err = fmt.Errorf("Get: failed to list all shards: %v", err)
 		return
 	}
+	to = map[ShardID]SequenceNumber{}
 	for _, shardID := range shards {
-		//TODO: Check that the sequence number date makes sense. If we haven't got anything in our cache, we don't care.
-		//TODO: We only care about changes made to data equal to or after the oldest date data currently in the cache.
-		records, t, read, getRecordsError := p.GetAllRecords(shardID, from[shardID])
+		records, t, read, getRecordsError := p.getRecords(shardID, from[shardID])
 		if getRecordsError != nil {
 			err = fmt.Errorf("Get: failed to get records: %v", getRecordsError)
 			return
@@ -118,7 +120,7 @@ func (p Pusher) Get(from StreamPosition, since time.Time) (keys []string, to Str
 			err = fmt.Errorf("Get: failed to get data from records: %v", getDataError)
 			return
 		}
-		for _, d := range dataSince(data, since) {
+		for _, d := range data {
 			keys = append(keys, d.Keys...)
 		}
 		to[shardID] = t
@@ -126,12 +128,34 @@ func (p Pusher) Get(from StreamPosition, since time.Time) (keys []string, to Str
 	return
 }
 
-func (p Pusher) GetAllRecords(shard ShardID, from SequenceNumber) (records []*kinesis.Record, to SequenceNumber, read bool, err error) {
-	svc := kinesis.New(session.New())
+func (p Stream) listShards() (shardIDs []ShardID, err error) {
+	var nextToken *string
+	var lso *kinesis.ListShardsOutput
+	for {
+		lso, err = p.svc.ListShards(&kinesis.ListShardsInput{
+			StreamName: aws.String(p.Name),
+			MaxResults: aws.Int64(1000),
+			NextToken:  nextToken,
+		})
+		if err != nil {
+			return
+		}
+		for _, s := range lso.Shards {
+			shardIDs = append(shardIDs, ShardID(*s.ShardId))
+		}
+		if lso.NextToken == nil {
+			break
+		}
+		nextToken = lso.NextToken
+	}
+	return
+}
 
+func (p Stream) getRecords(shard ShardID, from SequenceNumber) (records []*kinesis.Record, to SequenceNumber, read bool, err error) {
 	gsii := &kinesis.GetShardIteratorInput{
-		ShardId:    aws.String(string(shard)),
-		StreamName: aws.String(p.StreamName),
+		ShardId:           aws.String(string(shard)),
+		StreamName:        aws.String(p.Name),
+		ShardIteratorType: aws.String("LATEST"),
 	}
 	if string(from) != "" {
 		gsii.ShardIteratorType = aws.String("AFTER_SEQUENCE_NUMBER")
@@ -139,7 +163,7 @@ func (p Pusher) GetAllRecords(shard ShardID, from SequenceNumber) (records []*ki
 	}
 
 	var itr *kinesis.GetShardIteratorOutput
-	itr, err = svc.GetShardIterator(gsii)
+	itr, err = p.svc.GetShardIterator(gsii)
 	if err != nil {
 		err = fmt.Errorf("Get: failed to get iterator: %v", err)
 		return
@@ -149,9 +173,13 @@ func (p Pusher) GetAllRecords(shard ShardID, from SequenceNumber) (records []*ki
 
 	for si != nil {
 		var gro *kinesis.GetRecordsOutput
-		gro, err = svc.GetRecords(&kinesis.GetRecordsInput{ShardIterator: si})
+		gro, err = p.svc.GetRecords(&kinesis.GetRecordsInput{ShardIterator: si})
 		if err != nil {
-			err = fmt.Errorf("Get: failed to get records for shard '%v' with shard iterator '%v': %v", shardID, si, err)
+			var sis string
+			if si != nil {
+				sis = *si
+			}
+			err = fmt.Errorf("Get: failed to get records for shard '%v' with shard iterator '%v': %v", shard, sis, err)
 			return
 		}
 		for _, r := range gro.Records {
@@ -169,43 +197,9 @@ func getDataFromRecords(records []*kinesis.Record) (data []StreamData, err error
 		var sd StreamData
 		err = json.Unmarshal(r.Data, &sd)
 		if err != nil {
-			err = fmt.Errorf("Get: failed to get unmarshal data for record '%v' for shard '%v' with shard iterator '%v': %v", r.SequenceNumber, shardID, itr.ShardIterator, err)
 			return
 		}
 		data = append(data, sd)
-	}
-	return
-}
-
-func dataSince(in []StreamData, t time.Time) (out []StreamData) {
-	for _, d := range in {
-		if d.Time.Equal(t) || d.Time.After(t) {
-			out = append(out, d)
-		}
-	}
-	return
-}
-
-func (p Pusher) ListAllShards() (shardIDs []ShardID, err error) {
-	svc := kinesis.New(session.New())
-	var nextToken *string
-	var lso *kinesis.ListShardsOutput
-	for {
-		lso, err = svc.ListShards(&kinesis.ListShardsInput{
-			StreamName: aws.String(p.StreamName),
-			MaxResults: aws.Int64(1000),
-			NextToken:  nextToken,
-		})
-		if err != nil {
-			return
-		}
-		for _, s := range lso.Shards {
-			shardIDs = append(shardIDs, ShardID(*s.ShardId))
-		}
-		if lso.NextToken == nil {
-			break
-		}
-		nextToken = lso.NextToken
 	}
 	return
 }
