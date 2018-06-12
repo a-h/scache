@@ -30,18 +30,18 @@ type Stream struct {
 }
 
 const (
-	// DefaultMaxPutSize is the default target size of a single HTTP request which pushes data to Kinesis.
-	DefaultMaxPutSize = 1024 * 1024 * 2 // 2MB
-	// DefaultMaxRecordSize is the default target size of a Kinesis record. Multiple records are sent in a single request.
-	DefaultMaxRecordSize = 512 * 1024 // 512KB
+	// defaultMaxPutSize is the default target size of a single HTTP request which pushes data to Kinesis.
+	defaultMaxPutSize = 1024 * 1024 * 2 // 2MB
+	// defaultMaxRecordSize is the default target size of a Kinesis record. Multiple records are sent in a single request.
+	defaultMaxRecordSize = 512 * 1024 // 512KB
 )
 
 // NewStream creates a new pusher to stream events to Kinesis.
 func NewStream(name string) Stream {
 	return Stream{
 		Name:          name,
-		maxRecordSize: DefaultMaxRecordSize,
-		maxPutSize:    DefaultMaxPutSize,
+		maxRecordSize: defaultMaxRecordSize,
+		maxPutSize:    defaultMaxPutSize,
 		svc:           kinesis.New(session.New()),
 	}
 }
