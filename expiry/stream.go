@@ -21,35 +21,51 @@ type KinesisStream interface {
 
 // Stream provides a way to send and receive events using Kinesis.
 type Stream struct {
-	svc  KinesisStream
 	Name string
+	// maxPutSize is the target size of a single HTTP request which pushes data to Kinesis.
+	maxPutSize int
+	// maxRecordSize is the target size of a Kinesis record. Multiple records are sent in a single request.
+	maxRecordSize int
+	svc           KinesisStream
 }
+
+const (
+	// DefaultMaxPutSize is the default target size of a single HTTP request which pushes data to Kinesis.
+	DefaultMaxPutSize = 1024 * 1024 * 2 // 2MB
+	// DefaultMaxRecordSize is the default target size of a Kinesis record. Multiple records are sent in a single request.
+	DefaultMaxRecordSize = 512 * 1024 // 512KB
+)
 
 // NewStream creates a new pusher to stream events to Kinesis.
 func NewStream(name string) Stream {
 	return Stream{
-		Name: name,
-		svc:  kinesis.New(session.New()),
+		Name:          name,
+		maxRecordSize: DefaultMaxRecordSize,
+		maxPutSize:    DefaultMaxPutSize,
+		svc:           kinesis.New(session.New()),
 	}
 }
 
 // Put pushes events onto the stream.
-func (p Stream) Put(keys []string) (err error) {
-	records, err := createPutRecords(keys)
-	if err != nil {
-		return
+func (p Stream) Put(keys []string) error {
+	for _, section := range chunk(keys, 1024*1024) { // 1MB per request
+		records, err := createPutRecords(section, p.maxRecordSize)
+		if err != nil {
+			return err
+		}
+		input := &kinesis.PutRecordsInput{
+			StreamName: aws.String(p.Name),
+			Records:    records,
+		}
+		if _, err := p.svc.PutRecords(input); err != nil {
+			return err
+		}
 	}
-	input := &kinesis.PutRecordsInput{
-		StreamName: aws.String(p.Name),
-		Records:    records,
-	}
-	_, err = p.svc.PutRecords(input)
-	return
+	return nil
 }
 
-func createPutRecords(keys []string) ([]*kinesis.PutRecordsRequestEntry, error) {
-	// Chunk into 512KB messages, Kinesis's maximum is 1MB.
-	chunks := chunk(keys, 512*1024)
+func createPutRecords(keys []string, size int) ([]*kinesis.PutRecordsRequestEntry, error) {
+	chunks := chunk(keys, size)
 	records := make([]*kinesis.PutRecordsRequestEntry, len(chunks))
 	for i, sliceOfKeys := range chunks {
 		sd := NewStreamData(sliceOfKeys)
@@ -75,17 +91,16 @@ func createRandomKey() string {
 func chunk(values []string, maxLength int) (op [][]string) {
 	var chunkSize int
 	var startIndex, endIndex int
-	for endIndex, v := range values {
-		chunkSize += len(v)
-		if chunkSize > maxLength {
+	var v string
+	for endIndex, v = range values {
+		if chunkSize >= maxLength {
 			op = append(op, values[startIndex:endIndex])
 			startIndex = endIndex
 			chunkSize = 0
 		}
+		chunkSize += len(v)
 	}
-	if startIndex != endIndex {
-		op = append(op, values[startIndex:endIndex])
-	}
+	op = append(op, values[startIndex:])
 	return
 }
 

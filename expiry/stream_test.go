@@ -1,6 +1,7 @@
 package expiry
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -321,6 +322,117 @@ func TestGet(t *testing.T) {
 		}
 		if !reflect.DeepEqual(to, test.expectedTo) {
 			t.Errorf("%s: expected to have final positions %v, but had %v", test.name, test.expectedTo, to)
+		}
+	}
+}
+
+func TestPut(t *testing.T) {
+	var putRecordsCallCount, recordsAdded, itemsInRecords int
+	tests := []struct {
+		name                     string
+		maxPutSize               int
+		maxRecordSize            int
+		putRecordsFunc           func(input *kinesis.PutRecordsInput) (*kinesis.PutRecordsOutput, error)
+		ids                      []string
+		expectedErr              error
+		expectedPutRecordsCalled int
+		expectedRecordsAdded     int
+		expectedKeysInRecords    int
+	}{
+		{
+			name:          "put records",
+			maxRecordSize: 10, // bytes
+			putRecordsFunc: func(input *kinesis.PutRecordsInput) (op *kinesis.PutRecordsOutput, err error) {
+				putRecordsCallCount++
+				recordsAdded += len(input.Records)
+				for _, r := range input.Records {
+					var data StreamData
+					err := json.Unmarshal(r.Data, &data)
+					if err != nil {
+						t.Errorf("put records: unexpected error unmarhsalling data received by putRecords: %v", err)
+						break
+					}
+					itemsInRecords += len(data.Keys)
+				}
+				return &kinesis.PutRecordsOutput{}, err
+			},
+			ids: []string{"12345", "67890", "12345"},
+			expectedPutRecordsCalled: 1, // The call is below the default 2MB of data to PUT data, so only one call is expected.
+			expectedRecordsAdded:     2, // Because the maxRecordSize is 10, { 12345, 67890 } should be in one record and { 123456 } in another.
+			expectedKeysInRecords:    3, // 3 IDs should have been added to the stream.
+		},
+	}
+
+	for _, test := range tests {
+		putRecordsCallCount, recordsAdded, itemsInRecords = 0, 0, 0
+
+		s := NewStream("test")
+		s.svc = TestKinesisStream{
+			PutRecordsFunc: test.putRecordsFunc,
+		}
+		if test.maxRecordSize > 0 {
+			s.maxRecordSize = test.maxRecordSize
+		}
+		if test.maxPutSize > 0 {
+			s.maxPutSize = test.maxPutSize
+		}
+		err := s.Put(test.ids)
+		if !reflect.DeepEqual(err, test.expectedErr) {
+			t.Errorf("%s: expected error '%v', got '%v'", test.name, test.expectedErr, err)
+		}
+		if putRecordsCallCount != test.expectedPutRecordsCalled {
+			t.Errorf("%s: expected putRecordsFunc to be called %d times, but was called %d times",
+				test.name, test.expectedPutRecordsCalled, putRecordsCallCount)
+		}
+		if recordsAdded != test.expectedRecordsAdded {
+			t.Errorf("%s: expected putRecordsFunc to be called %d times with %d records, but %d records were added",
+				test.name, test.expectedPutRecordsCalled, test.expectedRecordsAdded, recordsAdded)
+		}
+		if itemsInRecords != test.expectedKeysInRecords {
+			t.Errorf("%s: expected putRecordsFunc to be called %d times with %d records containing %d keys, but %d keys were added",
+				test.name, test.expectedPutRecordsCalled, test.expectedRecordsAdded, test.expectedKeysInRecords, itemsInRecords)
+		}
+	}
+}
+
+func TestChunk(t *testing.T) {
+	tests := []struct {
+		input    []string
+		size     int
+		expected [][]string
+	}{
+		{
+			input:    []string{"A", "B", "C"},
+			size:     1,
+			expected: [][]string{{"A"}, {"B"}, {"C"}},
+		},
+		{
+			input:    []string{"A", "B", "C"},
+			size:     2,
+			expected: [][]string{{"A", "B"}, {"C"}},
+		},
+		{
+			input:    []string{"A", "B", "C"},
+			size:     3,
+			expected: [][]string{{"A", "B", "C"}},
+		},
+		{
+			input:    []string{"A", "B", "C"},
+			size:     200,
+			expected: [][]string{{"A", "B", "C"}},
+		},
+		{
+			input:    []string{"12345", "67890", "12345"},
+			size:     10,
+			expected: [][]string{{"12345", "67890"}, {"12345"}},
+		},
+	}
+
+	for _, test := range tests {
+		actual := chunk(test.input, test.size)
+		if !reflect.DeepEqual(test.expected, actual) {
+			t.Errorf("for input '%v' and chunk size %d, expected '%v', got '%v'", test.input, test.size,
+				test.expected, actual)
 		}
 	}
 }
