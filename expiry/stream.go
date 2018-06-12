@@ -48,7 +48,7 @@ func NewStream(name string) Stream {
 
 // Put pushes events onto the stream.
 func (p Stream) Put(keys []string) error {
-	for _, section := range chunk(keys, 1024*1024) { // 1MB per request
+	for _, section := range chunk(keys, p.maxPutSize) { // 1MB per request
 		records, err := createPutRecords(section, p.maxRecordSize)
 		if err != nil {
 			return err

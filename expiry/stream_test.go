@@ -361,6 +361,29 @@ func TestPut(t *testing.T) {
 			expectedRecordsAdded:     2, // Because the maxRecordSize is 10, { 12345, 67890 } should be in one record and { 123456 } in another.
 			expectedKeysInRecords:    3, // 3 IDs should have been added to the stream.
 		},
+		{
+			name:          "put record, need to make 2 calls due to limits on put size",
+			maxPutSize:    10,
+			maxRecordSize: 10, // bytes
+			putRecordsFunc: func(input *kinesis.PutRecordsInput) (op *kinesis.PutRecordsOutput, err error) {
+				putRecordsCallCount++
+				recordsAdded += len(input.Records)
+				for _, r := range input.Records {
+					var data StreamData
+					err := json.Unmarshal(r.Data, &data)
+					if err != nil {
+						t.Errorf("put records: unexpected error unmarhsalling data received by putRecords: %v", err)
+						break
+					}
+					itemsInRecords += len(data.Keys)
+				}
+				return &kinesis.PutRecordsOutput{}, err
+			},
+			ids: []string{"12345", "67890", "12345"},
+			expectedPutRecordsCalled: 2, // The call is below the default 2MB of data to PUT data, so only one call is expected.
+			expectedRecordsAdded:     2, // Because the maxRecordSize is 10, { 12345, 67890 } should be in one record and { 123456 } in another.
+			expectedKeysInRecords:    3, // 3 IDs should have been added to the stream.
+		},
 	}
 
 	for _, test := range tests {
