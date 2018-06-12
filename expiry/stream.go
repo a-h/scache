@@ -82,8 +82,9 @@ func createPutRecords(keys []string, size int) ([]*kinesis.PutRecordsRequestEntr
 }
 
 func createRandomKey() string {
-	var vs, op []byte
+	vs := make([]byte, 32)
 	rand.Read(vs)
+	op := make([]byte, hex.EncodedLen(len(vs)))
 	hex.Encode(op, vs)
 	return string(op)
 }
