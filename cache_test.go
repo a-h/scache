@@ -3,13 +3,15 @@ package scache
 import (
 	"testing"
 	"time"
+
+	"github.com/a-h/scache/data"
 )
 
 func TestCachePutAndGet(t *testing.T) {
 	c := New()
 	input := "the thing to cache"
-	c.Put(NewDataID("mydb.table.tableid", "12345"), input)
-	output, ok := c.Get(NewDataID("mydb.table.tableid", "12345"))
+	c.Put(data.NewID("mydb.table.tableid", "12345"), input)
+	output, ok := c.Get(data.NewID("mydb.table.tableid", "12345"))
 	if !ok {
 		t.Fatal("could not get data we just put in")
 	}
@@ -21,20 +23,20 @@ func TestCachePutAndGet(t *testing.T) {
 func TestCacheItemsCanExpire(t *testing.T) {
 	c := New()
 	expiry := time.Now().Add(time.Second * -1)
-	c.PutCacheItem(NewDataID("mydb.table.tableid", "12345"), NewCacheItem("item", expiry))
-	_, ok := c.Get(NewDataID("mydb.table.tableid", "12345"))
+	c.PutCacheItem(data.NewID("mydb.table.tableid", "12345"), NewCacheItem("item", expiry))
+	_, ok := c.Get(data.NewID("mydb.table.tableid", "12345"))
 	if !ok {
 		t.Fatal("haven't removed expired items yet")
 	}
 	c.RemoveExpired()
-	_, ok = c.Get(NewDataID("mydb.table.tableid", "12345"))
+	_, ok = c.Get(data.NewID("mydb.table.tableid", "12345"))
 	if ok {
 		t.Fatal("expired items should have been removed")
 	}
 }
 
 func TestCacheItemsCanBeOverwritten(t *testing.T) {
-	id := NewDataID("mydb.table.tableid", "1")
+	id := data.NewID("mydb.table.tableid", "1")
 	c := New()
 	c.Put(id, "v1")
 	c.Put(id, "v2")
@@ -49,9 +51,9 @@ func TestCacheItemsCanBeOverwritten(t *testing.T) {
 
 func TestCacheItemsCanBeRemoved(t *testing.T) {
 	c := New()
-	id1, id2, id3 := NewDataID("mydb.table.tableid", "1"),
-		NewDataID("mydb.table.tableid", "2"),
-		NewDataID("mydb.table.tableid", "3")
+	id1, id2, id3 := data.NewID("mydb.table.tableid", "1"),
+		data.NewID("mydb.table.tableid", "2"),
+		data.NewID("mydb.table.tableid", "3")
 	c.Put(id1, "item")
 	c.Put(id2, "item")
 	c.Put(id3, "item")

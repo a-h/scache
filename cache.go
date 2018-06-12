@@ -4,21 +4,9 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/a-h/scache/data"
 )
-
-// A DataID is a string which uniquely identifies a piece of data.
-type DataID struct {
-	Source string
-	ID     string
-}
-
-// NewDataID creates a new DataID, e.g. source = "mydb.mytable.id", id=12345
-func NewDataID(source, id string) DataID {
-	return DataID{
-		Source: source,
-		ID:     id,
-	}
-}
 
 // NewCacheItem creates a new cache item.
 func NewCacheItem(item interface{}, expiry time.Time) CacheItem {
@@ -58,18 +46,18 @@ type Cache struct {
 }
 
 // Put some data into the cache.
-func (c *Cache) Put(id DataID, item interface{}) {
+func (c *Cache) Put(id data.ID, item interface{}) {
 	expiryTime := c.Expiration(c.Now)
 	c.PutCacheItem(id, NewCacheItem(item, expiryTime))
 }
 
 // PutCacheItem puts a cache item into memory.
-func (c *Cache) PutCacheItem(id DataID, item CacheItem) {
+func (c *Cache) PutCacheItem(id data.ID, item CacheItem) {
 	c.Data.Store(id, item)
 }
 
 // Get some data from the cache.
-func (c *Cache) Get(id DataID) (value interface{}, ok bool) {
+func (c *Cache) Get(id data.ID) (value interface{}, ok bool) {
 	var ci CacheItem
 	ci, ok = c.GetItem(id)
 	if ok {
@@ -79,7 +67,7 @@ func (c *Cache) Get(id DataID) (value interface{}, ok bool) {
 }
 
 // GetItem gets the item from the cache.
-func (c *Cache) GetItem(id DataID) (item CacheItem, ok bool) {
+func (c *Cache) GetItem(id data.ID) (item CacheItem, ok bool) {
 	d, ok := c.Data.Load(id)
 	if !ok {
 		return
@@ -89,7 +77,7 @@ func (c *Cache) GetItem(id DataID) (item CacheItem, ok bool) {
 }
 
 // Remove an item from the cache.
-func (c *Cache) Remove(id DataID) {
+func (c *Cache) Remove(id data.ID) {
 	c.Data.Delete(id)
 }
 
@@ -106,7 +94,7 @@ func (c *Cache) RemoveExpired() {
 }
 
 // RemoveByIDs removes values from the cache by their ID.
-func (c *Cache) RemoveByIDs(ids ...DataID) {
+func (c *Cache) RemoveByIDs(ids ...data.ID) {
 	for _, id := range ids {
 		c.Remove(id)
 	}
