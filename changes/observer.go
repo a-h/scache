@@ -22,15 +22,15 @@ type StreamGetter interface {
 }
 
 // NewObserver creates a way of keeping up-to-date with a stream.
-func NewObserver(s StreamGetter) Observer {
-	return Observer{
+func NewObserver(s StreamGetter) *Observer {
+	return &Observer{
 		s:   s,
 		pos: map[expiry.ShardID]expiry.SequenceNumber{},
 	}
 }
 
-// Observe gets all changes to the stream.
-func (o Observer) Observe() (op []data.ID, err error) {
+// Observe gets all changes to the stream since the last call.
+func (o *Observer) Observe() (op []data.ID, err error) {
 	si, to, err := o.s.Get(o.pos)
 	if err != nil {
 		return
@@ -38,15 +38,18 @@ func (o Observer) Observe() (op []data.ID, err error) {
 	op = make([]data.ID, len(si))
 	var errs []error
 	for i, s := range si {
-		id, err := data.Parse(s)
-		if err != nil {
-			errs = append(errs, err)
+		id, parseErr := data.Parse(s)
+		if parseErr != nil {
+			errs = append(errs, parseErr)
 			continue
 		}
 		op[i] = id
 	}
 	o.pos = to
-	return nil, join(errs)
+	if errs != nil {
+		err = join(errs)
+	}
+	return
 }
 
 func join(errs []error) error {
@@ -62,6 +65,6 @@ func join(errs []error) error {
 
 // Reset sets the position of the stream to the latest message. Used when no data is cached, so being
 // notified of changes isn't required.
-func (o Observer) Reset() {
+func (o *Observer) Reset() {
 	o.pos = map[expiry.ShardID]expiry.SequenceNumber{}
 }

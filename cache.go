@@ -47,14 +47,14 @@ type Cache struct {
 }
 
 // Put some data into the cache.
-func (c *Cache) Put(id string, item interface{}) {
-	c.PutWithDuration(id, item, time.Duration(0))
+func (c *Cache) Put(key string, item interface{}) {
+	c.PutWithDuration(key, item, time.Duration(0))
 }
 
 // PutWithDuration puts some data into the cache, including the duration.
-func (c *Cache) PutWithDuration(id string, item interface{}, saved time.Duration) {
+func (c *Cache) PutWithDuration(key string, item interface{}, saved time.Duration) {
 	expiryTime := c.Expiration(c.Now)
-	c.PutCacheItem(id, NewCacheItem(item, expiryTime, saved))
+	c.PutCacheItem(key, NewCacheItem(item, expiryTime, saved))
 }
 
 // PutCacheItem puts a cache item into memory.
@@ -94,8 +94,8 @@ func (c *Cache) GetItem(key string) (item CacheItem, ok bool) {
 }
 
 // Remove an item from the cache.
-func (c *Cache) Remove(id string) {
-	c.Data.Delete(id)
+func (c *Cache) Remove(key string) {
+	c.Data.Delete(key)
 }
 
 // RemoveExpired removes expired values from the cache.
@@ -110,9 +110,9 @@ func (c *Cache) RemoveExpired() {
 	c.Data.Range(remover)
 }
 
-// RemoveByIDs removes values from the cache by their ID.
-func (c *Cache) RemoveByIDs(ids ...string) {
-	for _, id := range ids {
-		c.Remove(id)
+// RemoveMany removes values from the cache by their ID.
+func (c *Cache) RemoveMany(keys ...string) {
+	for _, key := range keys {
+		c.Remove(key)
 	}
 }

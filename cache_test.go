@@ -51,7 +51,7 @@ func TestCacheItemsCanBeRemoved(t *testing.T) {
 	c.Put("key_1", "item")
 	c.Put("key_2", "item")
 	c.Put("key_3", "item")
-	c.RemoveByIDs("key_1", "key_2")
+	c.RemoveMany("key_1", "key_2")
 	if _, ok := c.Get("key_1"); ok {
 		t.Errorf("expected %v to have been removed, but it wasn't", "key_1")
 	}
