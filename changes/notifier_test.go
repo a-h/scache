@@ -60,7 +60,7 @@ func TestNotifier(t *testing.T) {
 		},
 	}
 
-	err := n.Notify(records...)
+	err := n.NotifyObservablesChanged(records...)
 	if err != nil {
 		t.Errorf("unexpected error on notification: %v", err)
 	}

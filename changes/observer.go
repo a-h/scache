@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/a-h/scache/data"
 
@@ -12,8 +13,9 @@ import (
 
 // Observer reads a stream for changes, handling state.
 type Observer struct {
-	s   StreamGetter
-	pos expiry.StreamPosition
+	s     StreamGetter
+	pos   expiry.StreamPosition
+	mutex sync.Mutex
 }
 
 // StreamGetter defines the requirements for informing consumers of changes.
@@ -24,13 +26,16 @@ type StreamGetter interface {
 // NewObserver creates a way of keeping up-to-date with a stream.
 func NewObserver(s StreamGetter) *Observer {
 	return &Observer{
-		s:   s,
-		pos: map[expiry.ShardID]expiry.SequenceNumber{},
+		s:     s,
+		pos:   map[expiry.ShardID]expiry.SequenceNumber{},
+		mutex: sync.Mutex{},
 	}
 }
 
 // Observe gets all changes to the stream since the last call.
 func (o *Observer) Observe() (op []data.ID, err error) {
+	o.mutex.Lock()
+	defer o.mutex.Unlock()
 	si, to, err := o.s.Get(o.pos)
 	if err != nil {
 		return
@@ -66,5 +71,7 @@ func join(errs []error) error {
 // Reset sets the position of the stream to the latest message. Used when no data is cached, so being
 // notified of changes isn't required.
 func (o *Observer) Reset() {
+	o.mutex.Lock()
+	defer o.mutex.Unlock()
 	o.pos = map[expiry.ShardID]expiry.SequenceNumber{}
 }

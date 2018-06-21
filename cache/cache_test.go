@@ -1,4 +1,4 @@
-package scache
+package cache
 
 import (
 	"testing"

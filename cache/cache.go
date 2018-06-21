@@ -1,4 +1,4 @@
-package scache
+package cache
 
 import (
 	"math/rand"
@@ -115,4 +115,14 @@ func (c *Cache) RemoveMany(keys ...string) {
 	for _, key := range keys {
 		c.Remove(key)
 	}
+}
+
+// Count the number of items in the cache.
+func (c *Cache) Count() (count int) {
+	counter := func(k, v interface{}) bool {
+		count++
+		return true
+	}
+	c.Data.Range(counter)
+	return
 }
