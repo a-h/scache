@@ -7,18 +7,18 @@ import (
 )
 
 // NewCacheItem creates a new cache item.
-func NewCacheItem(item interface{}, expiry time.Time, saved time.Duration) CacheItem {
-	return CacheItem{
-		Item:   item,
+func NewCacheItem(item interface{}, expiry time.Time, saved time.Duration) Item {
+	return Item{
+		Value:  item,
 		Expiry: expiry,
 		Saved:  saved,
 	}
 }
 
-// CacheItem is the information stored in the cache.
-type CacheItem struct {
-	// Item is the data item itself.
-	Item interface{}
+// Item is the information stored in the cache.
+type Item struct {
+	// Value is the data item itself.
+	Value interface{}
 	// Expiry is the time when the item will expire.
 	Expiry time.Time
 	// Saved is the amount of time saved by getting this item from the cache.
@@ -58,38 +58,38 @@ func (c *Cache) PutWithDuration(key string, item interface{}, saved time.Duratio
 }
 
 // PutCacheItem puts a cache item into memory.
-func (c *Cache) PutCacheItem(key string, item CacheItem) {
+func (c *Cache) PutCacheItem(key string, item Item) {
 	c.Data.Store(key, item)
 }
 
 // Get some data from the cache.
 func (c *Cache) Get(key string) (value interface{}, ok bool) {
-	var ci CacheItem
+	var ci Item
 	ci, ok = c.GetItem(key)
 	if ok {
-		value = ci.Item
+		value = ci.Value
 	}
 	return
 }
 
 // GetWithDuration gets data from the cache, including how much time was saved by getting it from the cache.
 func (c *Cache) GetWithDuration(key string) (value interface{}, saved time.Duration, ok bool) {
-	var ci CacheItem
+	var ci Item
 	ci, ok = c.GetItem(key)
 	if ok {
-		value = ci.Item
+		value = ci.Value
 		saved = ci.Saved
 	}
 	return
 }
 
 // GetItem gets the item from the cache.
-func (c *Cache) GetItem(key string) (item CacheItem, ok bool) {
+func (c *Cache) GetItem(key string) (item Item, ok bool) {
 	d, ok := c.Data.Load(key)
 	if !ok {
 		return
 	}
-	item, ok = d.(CacheItem)
+	item, ok = d.(Item)
 	return
 }
 
@@ -101,7 +101,7 @@ func (c *Cache) Remove(key string) {
 // RemoveExpired removes expired values from the cache.
 func (c *Cache) RemoveExpired() {
 	remover := func(k, v interface{}) bool {
-		item := v.(CacheItem)
+		item := v.(Item)
 		if item.Expiry.Before(c.Now()) {
 			c.Data.Delete(k)
 		}

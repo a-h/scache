@@ -66,3 +66,37 @@ func TestCacheItemsCanBeRemoved(t *testing.T) {
 		t.Errorf("expected %v to have been removed, but it wasn't", "key_3")
 	}
 }
+
+func TestCacheItemsCanBeCounted(t *testing.T) {
+	c := New()
+	c.Put("key_1", "item")
+	c.Put("key_2", "item")
+	c.Put("key_3", "item")
+	if c.Count() != 3 {
+		t.Errorf("expected to have %d items, but got %d", 3, c.Count())
+	}
+	c.Remove("key_3")
+	c.Remove("key_3")
+	if c.Count() != 2 {
+		t.Errorf("expected to have %d items, but got %d", 2, c.Count())
+	}
+}
+
+func TestCacheItemsCanBeRetrievedWithTiming(t *testing.T) {
+	c := New()
+	c.PutCacheItem("key_1", Item{
+		Expiry: time.Date(2000, time.January, 1, 12, 0, 0, 0, time.UTC),
+		Saved:  time.Second * 30,
+		Value:  "123",
+	})
+	v, ts, ok := c.GetWithDuration("key_1")
+	if !ok {
+		t.Fatal("could not get data we just put in")
+	}
+	if v.(string) != "123" {
+		t.Errorf("expected '123' got '%v'", v)
+	}
+	if ts != time.Second*30 {
+		t.Errorf("expected 30 seconds, got %v", ts)
+	}
+}
