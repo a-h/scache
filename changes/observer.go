@@ -38,17 +38,18 @@ func (o *Observer) Observe() (op []data.ID, err error) {
 	defer o.mutex.Unlock()
 	si, to, err := o.s.Get(o.pos)
 	if err != nil {
+		err = errors.New("observer: could not get from stream: " + err.Error())
 		return
 	}
-	op = make([]data.ID, len(si))
 	var errs []error
-	for i, s := range si {
+	for _, s := range si {
 		id, parseErr := data.Parse(s)
 		if parseErr != nil {
-			errs = append(errs, parseErr)
+			e := errors.New(parseErr.Error() + " '" + s + "'")
+			errs = append(errs, e)
 			continue
 		}
-		op[i] = id
+		op = append(op, id)
 	}
 	o.pos = to
 	if errs != nil {
@@ -57,15 +58,15 @@ func (o *Observer) Observe() (op []data.ID, err error) {
 	return
 }
 
-func join(errs []error) error {
-	if errs == nil || len(errs) == 0 {
-		return nil
-	}
+func join(errs []error) (err error) {
 	var b bytes.Buffer
 	for _, e := range errs {
-		b.WriteString(e.Error() + ":")
+		b.WriteString(e.Error() + ", ")
 	}
-	return errors.New(strings.TrimSuffix(b.String(), ":"))
+	if b.Len() > 0 {
+		err = errors.New("observer: " + strings.TrimSuffix(b.String(), ", "))
+	}
+	return
 }
 
 // Reset sets the position of the stream to the latest message. Used when no data is cached, so being

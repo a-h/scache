@@ -1,6 +1,7 @@
 package changes
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -93,5 +94,50 @@ func TestThatTheStreamPositionIsUpdated(t *testing.T) {
 	_, err = o.Observe()
 	if err != nil {
 		t.Fatalf("unexpected error observing stream (#3): %v", err)
+	}
+}
+
+func TestThatObservervationMergesParseErrors(t *testing.T) {
+	id1 := data.NewID("db1.table1.id", "1")
+	id2 := data.NewID("db1.table1.id", "2")
+	id3 := data.NewID("db1.table1.id", "3")
+
+	getter := &MockStreamGetter{
+		GetFuncs: []func(from expiry.StreamPosition) (keys []string, to expiry.StreamPosition, err error){
+			func(from expiry.StreamPosition) (keys []string, to expiry.StreamPosition, err error) {
+				keys = []string{id1.String(), "something we can't parse", id2.String(), "some more bad stuff", id3.String()}
+				return
+			},
+		},
+	}
+
+	o := NewObserver(getter)
+	// Read from the latest position.
+	ids, err := o.Observe()
+	expectedErr := "observer: data.ID: value is not a data ID 'something we can't parse', data.ID: value is not a data ID 'some more bad stuff'"
+	if err == nil || err.Error() != expectedErr {
+		t.Fatalf("unexpected error observing stream: %v", err)
+	}
+	expected := []data.ID{id1, id2, id3}
+	if !reflect.DeepEqual(ids, expected) {
+		t.Errorf("after first observation, expected %v, got: %v", expected, ids)
+	}
+}
+
+func TestObservationErrors(t *testing.T) {
+	getter := &MockStreamGetter{
+		GetFuncs: []func(from expiry.StreamPosition) (keys []string, to expiry.StreamPosition, err error){
+			func(from expiry.StreamPosition) (keys []string, to expiry.StreamPosition, err error) {
+				err = errors.New("network error")
+				return
+			},
+		},
+	}
+
+	o := NewObserver(getter)
+	_, err := o.Observe()
+	expectedErr := "observer: could not get from stream: network error"
+	if err == nil || err.Error() != expectedErr {
+		t.Fatalf("unexpected error observing stream: %v", err)
 	}
 }
