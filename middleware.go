@@ -17,16 +17,22 @@ import (
 
 // AddMiddleware adds the cache to the context on each HTTP request, which ensures
 // that the cache is always up-to-date.
-func AddMiddleware(next http.Handler, s expiry.Stream) http.Handler {
+func AddMiddleware(next http.Handler, s expiry.Stream, minCacheDuration, maxCacheDuration time.Duration) http.Handler {
+	c := cache.New()
+	c.Expiration = cache.ExpireBetween(minCacheDuration, maxCacheDuration)
 	return &Middleware{
 		Observer: changes.NewObserver(s),
-		Cache:    cache.New(),
+		Cache:    c,
 		Next:     next,
 		Notifier: changes.NewNotifier(s),
 	}
 }
 
-var logger *logrus.Entry = logrus.WithField("pkg", "github.com/a-h/scache")
+func init() {
+	logrus.SetFormatter(&logrus.JSONFormatter{})
+}
+
+var logger = logrus.WithField("pkg", "github.com/a-h/scache")
 
 // Middleware is HTTP middleware that adds the cache to the HTTP context of the current request.
 type Middleware struct {
@@ -93,6 +99,34 @@ func Get(r *http.Request, key data.ID, v interface{}) (ok bool) {
 	var timeSaved time.Duration
 	v, timeSaved, ok = c.Cache.GetWithDuration(key.String())
 	c.TimeSaved += timeSaved
+	return
+}
+
+// Add a value to the cache.
+func Add(r *http.Request, key data.ID, v interface{}) (ok bool) {
+	return AddWithDuration(r, key, v, time.Duration(0))
+}
+
+// AddWithDuration adds a value to the cache, while recording how much time it would save
+// each time it's retrieved from the cache.
+func AddWithDuration(r *http.Request, key data.ID, v interface{}, d time.Duration) (ok bool) {
+	c, hasCache := GetCacheFromContext(r.Context())
+	if !hasCache {
+		return
+	}
+	c.PutWithDuration(key.String(), v, d)
+	ok = true
+	return
+}
+
+// GetCacheFromContext gets the cache object from the context. Should be used when wanting to customise
+// expiration of cache items or to use the cache directly.
+func GetCacheFromContext(ctx context.Context) (c *cache.Cache, ok bool) {
+	ccc, ok := ctx.Value(cacheContextKey).(*cacheContextContent)
+	if !ok {
+		return
+	}
+	c = ccc.Cache
 	return
 }
 

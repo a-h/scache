@@ -25,10 +25,22 @@ type Item struct {
 	Saved time.Duration
 }
 
-// DefaultExpiration is the default expiration function, it caches for at least one hour,
+// ExpiryFunction is a function which expires entries from the cache based on time.
+type ExpiryFunction func(now func() time.Time) time.Time
+
+// DefaultExpiration is the default expiration function, it caches for at least 30 minutes,
 // randomising expiry within a further 30 minute range.
-var DefaultExpiration = func(now func() time.Time) time.Time {
-	return now().Add(time.Hour * 1).Add(time.Duration(rand.Intn(30)) * time.Minute)
+var DefaultExpiration = ExpireBetween(time.Minute*30, time.Hour)
+
+// ExpireBetween creates an expiry function which randomises the expiration time to avoid cache
+// runs.
+func ExpireBetween(min, max time.Duration) ExpiryFunction {
+	window := max - min
+	ms := window / time.Millisecond
+	return func(now func() time.Time) time.Time {
+		extraTime := time.Duration(rand.Intn(int(ms)) * int(time.Millisecond))
+		return now().Add(min).Add(extraTime)
+	}
 }
 
 // New creates a new Cache.
@@ -43,7 +55,7 @@ func New() *Cache {
 type Cache struct {
 	Data       sync.Map
 	Now        func() time.Time
-	Expiration func(now func() time.Time) time.Time
+	Expiration ExpiryFunction
 }
 
 // Put some data into the cache.

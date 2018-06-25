@@ -3,14 +3,15 @@ package user
 import (
 	"encoding/json"
 	"net/http"
+	"time"
+
+	"github.com/a-h/pathvars"
 
 	"github.com/a-h/scache"
-
-	"github.com/gorilla/mux"
 )
 
 // DatabaseGetter gets Users.
-type DatabaseGetter func(id string) (User, error)
+type DatabaseGetter func(id string) (u User, ok bool, err error)
 
 // DatabasePutter stores users.
 type DatabasePutter func(u User) error
@@ -29,10 +30,23 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Get(w, r)
 }
 
+var userIDGetRequestTemplate = pathvars.NewExtractor("/user/{userid}", "*/user/{userid}")
+
+func getUserIDFromRequest(r *http.Request) (id string) {
+	if vars, ok := userIDGetRequestTemplate.Extract(r.URL); ok {
+		id = vars["userid"]
+	}
+	return
+}
+
 // Get is the HTTP handler for the GET method.
 func (h Handler) Get(w http.ResponseWriter, r *http.Request) {
 	// Grab the UserID from the request fields.
-	userID, ok := mux.Vars(r)["userID"]
+	userID := getUserIDFromRequest(r)
+	if userID == "" {
+		http.Error(w, "userID was not provided", http.StatusInternalServerError)
+		return
+	}
 
 	// Convert the bare userID value (e.g. 12345) into a qualified data.ID
 	// (one which includes the database or other data source name).
@@ -42,14 +56,22 @@ func (h Handler) Get(w http.ResponseWriter, r *http.Request) {
 	// handled removing expired entries from the cache.
 	var u User
 	var err error
-	ok = scache.Get(r, dataID, &u)
+	ok := scache.Get(r, dataID, &u)
 	if !ok {
 		// If the data isn't in the cache, we need to go back to the data source.
-		u, err = h.GetUser(userID)
+		st := time.Now()
+		u, ok, err = h.GetUser(userID)
 		if err != nil {
 			http.Error(w, "failed to get user from DB", http.StatusInternalServerError)
 			return
 		}
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		// Remember to add the data we just got from the DB back to the cache.
+		dur := time.Now().Sub(st)
+		scache.AddWithDuration(r, dataID, u, dur)
 	}
 
 	e := json.NewEncoder(w)
@@ -59,9 +81,9 @@ func (h Handler) Get(w http.ResponseWriter, r *http.Request) {
 // Post is the HTTP handler for the POST method.
 func (h Handler) Post(w http.ResponseWriter, r *http.Request) {
 	// Grab the UserID from the request fields.
-	userID, ok := mux.Vars(r)["userID"]
-	if !ok {
-		http.Error(w, "userID not found in path", http.StatusBadRequest)
+	userID := getUserIDFromRequest(r)
+	if userID == "" {
+		http.Error(w, "userID was not provided", http.StatusInternalServerError)
 		return
 	}
 
@@ -87,6 +109,7 @@ func (h Handler) Post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Inform consumers that the data has changed.
 	scache.Invalidate(r, dataID)
 	w.Write([]byte(`{ "ok": "true" }`))
 }
