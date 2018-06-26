@@ -185,25 +185,22 @@ func (p Stream) getRecords(shard ShardID, from SequenceNumber) (records []*kines
 		return
 	}
 
-	si := itr.ShardIterator
-
-	for si != nil {
+	for itr.ShardIterator != nil {
 		var gro *kinesis.GetRecordsOutput
-		gro, err = p.svc.GetRecords(&kinesis.GetRecordsInput{ShardIterator: si})
+		gro, err = p.svc.GetRecords(&kinesis.GetRecordsInput{ShardIterator: itr.ShardIterator})
 		if err != nil {
-			var sis string
-			if si != nil {
-				sis = *si
-			}
-			err = fmt.Errorf("Get: failed to get records for shard '%v' with shard iterator '%v': %v", shard, sis, err)
+			err = fmt.Errorf("Get: failed to get records for shard '%v' with shard iterator type '%v' (from '%v'): %v", shard, gsii.ShardIteratorType, from, err)
 			return
+		}
+		if len(gro.Records) == 0 {
+			break
 		}
 		for _, r := range gro.Records {
 			records = append(records, r)
 			to = SequenceNumber(*r.SequenceNumber)
 			read = true
 		}
-		si = gro.NextShardIterator
+		itr.ShardIterator = gro.NextShardIterator
 	}
 	return
 }
