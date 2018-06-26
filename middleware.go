@@ -3,6 +3,7 @@ package scache
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -97,7 +98,16 @@ func Get(r *http.Request, key data.ID, v interface{}) (ok bool) {
 		return
 	}
 	var timeSaved time.Duration
-	v, timeSaved, ok = c.Cache.GetWithDuration(key.String())
+	item, timeSaved, ok := c.Cache.GetWithDuration(key.String())
+	if !ok {
+		return
+	}
+	t := reflect.TypeOf(v)
+	if t.Kind() != reflect.Ptr || v == nil {
+		return
+	}
+	e := reflect.ValueOf(v).Elem()
+	e.Set(reflect.ValueOf(item))
 	c.TimeSaved += timeSaved
 	return
 }
