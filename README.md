@@ -20,6 +20,13 @@ Getting data from Kinesis takes time, so `scache` keeps track of how much time w
 
 # How to use it
 
+## Full example
+
+* Step 1: Setting up Middleware
+    * [example/api/main.go](example/api/main.go)
+* Step 2: Using it
+    * [example/user/handler.go](example/user/handler.go)
+
 ## Add the HTTP middleware
 
 ```go
